@@ -1,0 +1,310 @@
+---
+title: "///"
+subtitle: <h3s>Causal inference from observational data - impact study of Colin Kaepernick Nike campaign.</h3>
+author: "mic.stan@outlook.com"
+output:
+  html_notebook:
+    #code_folding: hide
+    #fig_width: 10
+    #fig_height: 6
+    smart: no
+    #toc: true
+    #toc_float: true
+    mathjax: null
+    highlight: default
+    theme: lumen
+---
+
+<style>
+#tocify-header0 {
+    display: none;
+}
+
+#tocify-header1 {
+    display: none;
+}
+
+</style>
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse);
+library(quantmod); library(tidyquant); library(gtrendsR); library(rvest)
+library(CausalImpact);
+library(hrbrthemes); theme_set(theme_ipsum())
+library(bsts)
+library(timeSeries) # timeSeries masks filter from dplyr!
+library(forecast)
+filter <- dplyr::filter
+select <- dplyr::select
+```
+
+
+<center><img width="100%" src="colin.png"></center>
+
+
+------
+
+### Introduction
+
+- In the second half of 2018 Nike invited Colin Kaepernick as a face of its new global advertising campaign. Kaepernick is a football player but also civil right activist popular of protesting police voilance and killings of African American[^1].
+- The campaign rolled out at the begining of September 2018 and positioned Nike in the middle of the ongoing political debate. It resulted with strong polarization of reactions varying from enthusiastic support to organized boykots including public burnnig of company's products[^2].
+- In this short analysis I try to quantify the impact of the campaign by looking at publickly available data from Google searches trends as well as Nike stock.
+- Stock exchange closing prices are downloaded using [`tidyquant`](https://cran.r-project.org/web/packages/tidyquant/index.html) and for search results I use [`gtrendsR`](https://cran.r-project.org/web/packages/gtrendsR/index.html) wrapper around Google search trends API.
+- It is a hard task (but common request) to estimate intervention effect on time series data without randomized experiment setup. In this example the inference is done using amazing [`CausalImpact`](https://github.com/google/CausalImpact) package[^3] ([paper](https://ai.google/research/pubs/pub41854)).
+
+
+------
+
+### Nike stock & searches history
+
+
+```{r}
+start_date <- as.Date("2015-01-01")
+end_date <- as.Date("2019-04-07")
+
+nike_stock_weekly <- tq_get(c("NKE"), from=start_date, to=end_date) %>%
+  select(date, close) %>%
+  arrange(date) %>%
+  mutate(close_scaled = scale(close)) %>%
+  group_by(week = as.Date(floor_date(ymd(date), unit="week"))) %>%
+  summarize(scaled_close = mean(close_scaled)) %>% ungroup()
+
+nike_searches_weekly <- gtrends("Nike", geo = c("US"))$interest_over_time %>%
+  mutate(hits_scaled = scale(hits)) %>%
+  group_by(week = as.Date(floor_date(ymd(date), unit="week"))) %>%
+  summarize(scaled_searches = mean(hits_scaled)) %>% ungroup()
+
+nike_history <- left_join(nike_stock_weekly, nike_searches_weekly, by="week")
+
+```
+
+
+```{r fig.align="center", fig.height=5, fig.width=10}
+ggplot() + 
+  geom_line(aes(week, scaled_searches), data=nike_history, colour="lightgray", size = 1.5) +
+  annotate(geom="text", x=as.Date("2019-04-01"), y=1, label="Searches", color="darkgray", size = 4) +
+  geom_line(aes(week, scaled_close), data=nike_history, colour="darkgreen", size = 1.5) + 
+  annotate(geom="text", x=as.Date("2019-04-01"), y=3, label="Stock", color="darkgreen", size = 4) +
+  geom_vline(xintercept = as.Date("2018-08-31"), colour = "red", alpha = 0.5) + 
+  annotate(geom="text", x=as.Date("2018-12-25"), y=11, label="Campaign start", color="red", size = 4) +
+  labs(x = "Week", y = "Scaled values: Nike stock price and Google searches")
+  
+```
+
+### Effect on searches
+
+- There is a visible spike in registered searches that included the word "nike" just after the campaign started.
+- It might be difficult to assess whether the effect was temporary or it resulted with higher number of searches also in the following months.
+- In order to answer this question more precisely I will try to fit a model for searches happening before the campaign and then compare predicted future values with the actuals. 
+
+Let's look closer at searches time series before the campaign start.
+
+```{r message=FALSE, warning=FALSE}
+pre_searches <- nike_searches_weekly %>%
+  filter(as.Date(week) >= as.Date("2015-01-01")) %>%
+  filter(as.Date(week) <= as.Date("2018-08-26"))
+
+post_searches <- nike_searches_weekly %>%
+  filter(as.Date(week) > as.Date("2018-08-26"))
+
+ts_pre <- ts(pre_searches$scaled_searches, start = lubridate::decimal_date(ymd("2015-01-04")), freq=365.25/7)
+ts_post <- ts(post_searches$scaled_searches, start = lubridate::decimal_date(ymd("2018-09-02")), freq=365.25/7)
+
+#c(2015, 1, 4)
+```
+
+```{r fig.height=5, fig.width=8}
+plot(decompose(ts_pre))
+acf(ts_pre)
+```
+
+* Clear yearly seasonal pattern identified with visible three repetetive periods
+* It should be possible to get accurate predictions with ARIMA
+
+**ARIMA** with auto parameters fit
+```{r}
+# ARIMA (with auto parameters fit)
+fit_arima <- auto.arima(ts_pre)
+arima_predictions <- predict(fit_arima, n.ahead = 52) 
+```
+
+```{r fig.height=4, fig.width=8}
+ts.plot(fit_arima$fitted, ts_pre, arima_predictions$pred, ts_post,
+        col = c("red", "blue", "red", "blue"),
+        lty = c("dashed", "solid", "dashed", "solid"),
+        xlab = " ",
+        main = "Weekly searches vs predictions based on pre-campaign period")
+abline(v = decimal_date(ymd(("2018-09-02"))), lwd=1, col='black')
+legend("topright", c("auto arima predictions", "actual searches"), col = c("red", "blue"), lty = 1, cex=0.5)
+```
+
+```{r}
+arima_errors <- abs(ts_post - arima_predictions$pred[1:length(ts_post)])
+print(which.max(arima_errors))
+print(round(max(arima_errors)/mean(arima_errors[2:length(arima_errors)]), 1))
+```
+
+- For the predicted period only week 1 and 2 after the intervention are visibly different from the predictions (trained on the 01.2015-08.2018 period). **The error in the first week after the campaign is over 46 time higher than the average from th*e following weeks**. All the following weeks were quite accurately predicted by the model which suggests that **searches pattern came back to "normal"**.
+
+### Nike stock price - finding control time series
+
+- For searches the effect is clearly visible. Situation is less obious for the stock time series where we see some increase but but after few weeks also less steep decline.
+- The general approach to quantify possible effect on stock remains the same: 1. Fit time series model on pre intervention period 2. Forecast what the response would look like had the intervention not taken place 3. Compare predictions with the observed stock data.
+- This time i will fit [bayesian structural time series](https://en.wikipedia.org/wiki/Bayesian_structural_time_series) model (with more complicated mathematical underpining for decomposition and predictors importance but user friendly implementation in [bsts package](https://cran.r-project.org/web/packages/bsts/index.html))
+- Also this time, in order to make it more robust, I will try to add some other stocks as regressors
+
+First, let's get time series data including closing prices of Nike stock and compare with two others popular sportsweare brands.
+
+```{r}
+stocks <- tq_get(c("NKE", "ADS", "UAA"), from=start_date, to=end_date) %>%
+  select(symbol, date, close) %>%
+  arrange(date) %>%
+  group_by(symbol) %>%
+  mutate(close_scaled = scale(close)) %>%
+  ungroup()
+```
+
+
+```{r, fig.height = 4, fig.width = 8}
+ggplot(filter(stocks, symbol %in% c("ADS", "NKE", "UAA")), aes(date, close_scaled, colour=symbol)) + 
+  geom_line() + 
+  facet_wrap(~symbol, nrow = 1) + 
+  labs(x = "Close date", y = "Scaled close price", colour = " ") + 
+  theme(legend.position = "bottom")
+```
+
+They behave very differently altough all go down at the end of 2019. Quick glimpse at the total market trend confirms that the whole NASDAQ was in a bullish mood in Q4'18. It definately makes sense to include some other time series to capture this overall trend. For causal inference we need to find control time series that will be highly correlated in the pre intervention period. Let's check some other candidates based on: https://marketchameleon.com/Overview/NKE/Similar/
+
+```{r}
+ticks <- c("NKE", "CAL", "CROX", "DECK", "FL", "FOSL", "SHOO", "SKX", "TPR", "VRA", "WWW", "ADS")
+ticks_names <- c("Nike", "Crocs", "Deckers", "Foot Locker", "Fossil", "Steven Madden", "Skechers", "Tapestry", "Vera Bradley", "Wolverine World Wide")
+
+stocks <- tq_get(ticks, from=start_date, to=end_date) %>%
+  select(symbol, date, close) %>%
+  arrange(date) %>%
+  group_by(symbol) %>%
+  mutate(close_scaled = scale(close)) %>%
+  ungroup()
+
+```
+
+
+```{r message=FALSE, warning=FALSE, fig.height = 8, fig.width = 8}
+
+pre_intervention <- stocks %>%
+  filter(as.Date(date) < as.Date("2018-09-01")) %>%
+  arrange(as.Date(date)) %>%
+  select(symbol, date, close_scaled) %>%
+  spread(symbol, close_scaled) %>%
+  select(-date)
+
+PerformanceAnalytics::chart.Correlation(pre_intervention)
+```
+
+Ok, some of them look better. For the impact analysis i will limit myself to four controls: CROX, DECK, SHOO and WWW:
+
+```{r fig.height=5, fig.width=10}
+ggplot(filter(stocks, symbol %in% c("NKE", "CROX", "DECK", "SHOO", "WWW")), aes(date, close_scaled, colour=symbol)) + 
+  geom_line() +
+  labs(x = "Close date", y = "Scaled close price", colour = " ") + 
+  theme(legend.position = "bottom") +
+  geom_vline(xintercept = as.Date("2018-09-01"), colour="red")
+```
+
+- These are somehow simmilar brands that also followed the same time trend and shoudn't be affected by the campaign. For the full analysis it would make sense to include other datasources that could make good controls (e.g. other market indexes, weather etc.)
+
+### Prepare time seriess
+
+```{r}
+ref <- stocks %>%
+  filter(symbol %in% c("NKE", "DECK", "CROX", "SHOO", "WWW")) %>%
+  select(date, symbol, close_scaled) %>%
+  mutate(symbol = ifelse(symbol == "NKE", "y", symbol)) %>%
+  spread(symbol, close_scaled) %>%
+  arrange(date) %>%
+  select(date, "y", "DECK", "CROX", "SHOO", "WWW") %>%
+  mutate(period = ifelse(as.Date(date) <= as.Date("2018-08-31"), "pre", "post"))
+
+pre_data <- ref %>% filter(period == "pre") %>% select(-period)
+post_data <- ref %>% filter(period == "post") %>% select(-period)
+
+pre.period <- c(1, campaign_start)
+post.period <- c(campaign_start+1, length(y))
+campaign_start <- which(grepl("2018-08-31", ref$date))
+
+y <- ref$y
+post.period.response <- y[post.period[1] : post.period[2]]
+y[post.period[1] : post.period[2]] <- NA
+deck <- ref$DECK
+crox <- ref$CROX
+shoo <- ref$SHOO
+www <- ref$WWW
+
+head(pre_data)
+```
+
+
+### Fit model
+
+```{r}
+ss <- list()
+ss <- AddSemilocalLinearTrend(ss, y = y)
+#ss <- AddSeasonal(ss, y = y, nseasons = 52, season.duration = 7)
+#ss <- AddSeasonal(ss, y = y, nseasons = 7, season.duration = 1)
+#ss <- AddMonthlyAnnualCycle(ss, y = y, date.of.first.observation = min(stocks$date))
+#ss <- AddRegressionHoliday(ss, y = pre_data$NKE)
+bsts_fit_pre <- bsts(y ~ .,
+             state.specification = ss,
+             data = select(pre_data, -date),
+             expected.model.size = 5,
+             niter = 1000)
+
+bsts_fit <- bsts(formula = y ~ deck + crox + shoo + www,
+             state.specification = ss, 
+             expected.model.size = 5,
+             niter = 1000)
+
+```
+
+```{r}
+colMeans(bsts_fit_pre$coefficients)
+```
+
+```{r}
+errors_m <- bsts.prediction.errors(bsts_fit_pre, burn = 500)$in.sample
+avg_abs_errors <- abs(colMeans(errors))
+cumerr = cumsum(abs(colMeans(errors)))
+plot(avg_abs_errors, type='l')
+```
+
+
+```{r}
+pred <- predict(bsts_fit_pre, newdata = post_data, horizon = 100, burn = 50, quantiles = c(.05, .95))
+plot(pred)
+```
+
+### Estimate impact
+
+```{r}
+impact <- CausalImpact(bsts.model = bsts_fit, post.period.response = post.period.response)
+plot(impact)
+```
+
+```{r}
+summary(impact)
+```
+
+<br>
+
+- Altough Nike stock droped few weeks after the campaign so did selected covariates. Still, the average effect is negative - **price decreased on average by -17%** in the after invervention perion when compared with the model predictions (cumulative effect doesn't make much sense for the stock prices)
+- But the difference between expected (estimate of the counterfactual) and the actual price changes is too small to formulate definite conclusion. For the intervention period betwenn 09.2018-04.2019 **the effect is not significant and may be eassily a result of random fluctuations** (actually the probability of obtaining this effect by chance is p = 0.23)
+- Considering quite wide confidence interval (<-52%, +26%>) one could potentially look for more and better (higly correlated) control time series
+
+### Final comments
+There are few assumptions behind this approach, most importantly that the control time series were not affected by the event (the campaing) and that the relationship between Nike stock and covariates remains stable before and after intervention. Since the selected companies are part of the same industry, and to some extend compete with each other, it is quite possible that this assumption does not hold. For more roboust analysis more carefull selection of control time series is needed.
+
+
+
+[^1]: [https://www.businessinsider.com/nike-releases-colin-kaepernick-commercial-2018-9?IR=T](https://www.businessinsider.com/nike-releases-colin-kaepernick-commercial-2018-9?IR=T) 
+[^2]: [https://www.businessinsider.com/nike-advert-with-colin-kaepernick-has-people-burning-products-2018-9?IR=T](https://www.businessinsider.com/nike-advert-with-colin-kaepernick-has-people-burning-products-2018-9?IR=T)
+[^3]: CausalImpact 1.2.3, Brodersen et al., Annals of Applied Statistics (2015). [http://google.github.io/CausalImpact/](http://google.github.io/CausalImpact/)

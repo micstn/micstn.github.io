@@ -1,0 +1,551 @@
+---
+title: "///"
+subtitle: <h3>Beijing housing market - exploratory analysis and price modeling</h3>
+author: "mic.stan@outlook.com"
+output:
+  html_notebook:
+    #code_folding: hide
+    fig_width: 10
+    fig_height: 6
+    smart: no
+    toc: true
+    toc_float: true
+    mathjax: null
+    highlight: pygments
+    theme: lumen
+---
+
+<style>
+#tocify-header0 {
+    display: none;
+}
+
+#tocify-header1 {
+    display: none;
+}
+</style>
+
+------
+
+### INTRODUCTION
+
+- The notebook includes a short exploratory analysis and comparison of few selected models for house price prediction task.
+- It uses Beijing housing prices from 2011-2017 period scrapped from Lianjia.com and shared on kaggle datastes: [https://www.kaggle.com/ruiqurm/lianjia](https://www.kaggle.com/ruiqurm/lianjia)
+- Some of the variables included in the original dataset has been removed after innitial exploration to make sure the modeling corresponds as much as possible to a real situation.
+
+------
+
+### SETUP
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(tictoc); library(doParallel)
+library(stringr); library(lubridate); library(inspectdf); library(PerformanceAnalytics); library(fastDummies)
+library(caret); library(mlbench); library(xgboost); library(earth); library(ranger)
+library(OpenStreetMap)
+library(patchwork); library(hrbrthemes); theme_set(theme_ipsum())
+```
+
+### LOAD DATA
+
+- getting data and removing columns with unique ids
+- innitial spliting for test and development set
+- small sample dataframe for interactive development
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# beijing_housing -> bh
+bh <- read_csv("data/new.csv", locale = readr::locale(encoding = "latin1")) %>%
+  select(-url, -id, -Cid) # removing ids
+
+# save test and make sample df
+set.seed(23)
+bh <- bh[sample(nrow(bh)),] # random shuffle rows
+df_splits <- bh %>%
+  mutate(split_flag = sample(1:2, size = dim(bh)[1], prob=c(0.1, 0.9), replace=TRUE)) %>%
+  mutate(split_flag = ifelse(split_flag == 1, "test", "dev")) %>%
+  group_by(split_flag) %>%
+  group_split()
+
+bh_dev <- df_splits[[1]]
+bh_test <- df_splits[[2]]
+write_csv(bh_test, "bh_test.csv")
+bh <- bh_dev
+bh_sample <- bh %>% sample_n(0.02 * dim(bh)[1])
+```
+
+```{r}
+colnames(bh)
+print(paste("Development dataset size: ", dim(bh)))
+```
+
+
+### SHORT EDA
+
+```{r warning=FALSE}
+knitr::kable(t(head(bh)))
+```
+
+<br>  
+
+#### **Check types**
+
+```{r}
+inspect_types(bh, show_plot = TRUE)
+```
+
+- It seems many of the integers are actually categorical variables. I will deal with that in the preprocessing section and make a decision based on what makes more sense for the modeling.
+
+<br>
+
+#### **Check NAs**
+
+```{r}
+inspect_na(bh)
+```
+
+- DOM (Days on market) looks really bad with almost half of the records with NAs. Since data was scrapped from the online platform this can potentially have different meanings, for example we can miss data for properties that were just added (NA = 0). This would be important for filling missing data so let's try to verify it by checking its distribution.
+
+```{r}
+ggplot(bh, aes(DOM)) +
+  geom_histogram(bins = 100) +
+  geom_vline(xintercept = median(bh$DOM, na.rm=TRUE), colour = "red")
+```
+- Looking at the distribution it seems quite possible that the NAs values in DOM are actually "day 0" on the market. Also Beijing is very fast-paced with 50% of the offers staying under 6 days on the portal!
+
+- Beside buildingType and communityAverage it looks quite complete. 
+
+<br>
+
+#### **Price distribution (target variable)**
+
+
+```{r}
+ggplot(bh, aes(price)) + geom_histogram(bins=100)
+```
+
+
+#### **Correlations**
+
+- Looking into correlation of price with available continious variables:
+
+```{r fig.height=6, fig.width=6, message=FALSE, warning=FALSE}
+PerformanceAnalytics::chart.Correlation(select(bh_sample, DOM, followers, price, square, ladderRatio, totalPrice, communityAverage))
+```
+
+- Ok, there are few highly correlated variables... but should we really use them? **In the real situation they wouldn't be available**. We will have to remove things like totalPrice as well as days on the market, number of followers and even communityAverage as it could have been calculated using our targets. It looks the only continious variable we have left is the apartment's size (`square`).
+
+<br>
+
+##### **Time trends**
+
+
+```{r warning=FALSE}
+weekly_avg <- bh %>%
+  group_by(week = lubridate::floor_date(as.Date(tradeTime), unit = "week")) %>%
+  summarize(avg_price = mean(price)) %>%
+  ungroup() %>%
+  filter(year(week) > 2011)
+
+ggplot(weekly_avg, aes(week, avg_price)) +
+  geom_line() +
+  geom_smooth() +
+  labs(y = "Average weekly price", x = "Week")
+```
+
+- In general there is a visible upward trend but because there is no consecutive growth across all dates (2017 > 2016 but 2018 < 2017) it might be usefull to kepp year as categorical variable.
+
+<br>
+
+##### **Geo trends**
+
+
+```{r warning=FALSE}
+map <- openmap(upperLeft = c(max(bh$Lat),min(bh$Lng)),
+               lowerRight = c(min(bh$Lat),max(bh$Lng)),
+               zoom = NULL,
+               type = c("osm"))
+map.latlon <- openproj(map, projection = "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")
+
+autoplot(map.latlon) +
+  geom_point(data = bh_sample, aes(Lng, Lat, colour = price), alpha = 0.6) + 
+  labs(title = "Beijing - house price by location", x = " ", y = " ", colour = "Price") + 
+  theme(plot.margin = unit(c(0,0,0,0),"cm"))
+```
+
+<br> 
+**Districts prices:**
+
+```{r}
+p1 <- autoplot(map.latlon) +
+  geom_point(data = bh_sample, aes(Lng, Lat, colour = as.factor(district)), alpha = 0.6) + 
+  labs(title = "Price distribution by district", x = " ", y = " ", colour = "District") + 
+  theme(plot.margin = unit(c(0,0,0,0),"cm"), legend.position = "none")
+
+p2 <- ggplot(bh, aes(as.factor(district), price, fill = as.factor(district))) + 
+  geom_boxplot(outlier.shape = NA) + 
+  scale_x_discrete(position = "top") +
+  labs(title = " ", x = "District", y = "Price", colour = " ") + 
+  coord_flip(ylim=c(0, 100000)) +
+  theme(legend.position = "none", plot.margin = unit(c(0,0,0,0),"cm"))
+
+p1 + p2 + plot_layout(ncol = 2)
+```
+
+- Districts 1 and 10 located in the center with visibly higher prices. It does not make sense to keep districts as continious variables as the numbers corespond very losely to locations.
+
+<br>
+
+#### **Baseline model**
+
+Before moving to the preprocessing part lets try to fit simple linear model with raw data as a baseline:
+```{r}
+base_fit <- lm(price ~ ., data = select(bh, -totalPrice, -communityAverage, -followers, -DOM, -split_flag) %>% na.omit)
+cat(paste0("R-squared: ", round(summary(base_fit)$adj.r.squared, 2),
+           "\nRMSE: ", round(sqrt(mean(base_fit$residuals^2)), 2),
+           "\nMAE: ", round(mean(abs(base_fit$residuals)), 2)))
+```
+
+
+------
+
+### PREPROCESSING
+
+**Preprocessing steps:**  
+
+- Removing all non property features - the ones we hadn't have available in the real world situation (totalPrice, communityAverage, days on market, followers)
+- Correcting columns types
+- Remove extreame outliers
+- Removing prices below 10k as obviosuly erroneous data
+- Removing some extreme outliers (ladderRatio)
+- Extract floor number from floor text field
+- Extract date related features for tradeTime
+- One-hot encode categorical variables
+- Split training and validation
+- Imputing missing values with knn
+- Reduce correlation and coolinearity
+- Remove variables with near zero variance (+ levels with very small frequency)
+- Scale & center
+
+<br>
+
+#### **Date features**
+
+```{r}
+date_features <- function(dates, as_factors = FALSE){
+  "Takes a vector of dates and returns a dataframe including year, quarter_of_year, month_of_year, week_of_year, week_of_month, day_of_month, weekday and weekend"
+  
+  monthweeks <- function(x) {
+    ceiling(as.numeric(format(x, "%d"))/7)
+  }
+  dates <- as.data.frame(dates)
+  colnames(dates) <- c("date")
+  dates_features <- dates %>% mutate(year = lubridate::year(date)) %>% 
+    mutate(quarter_of_year = lubridate::quarter(date)) %>% 
+    mutate(month_of_year = lubridate::month(date)) %>%
+    mutate(month_name = lubridate::month(date, label = TRUE)) %>%
+    mutate(week_of_year = lubridate::week(date)) %>% 
+    mutate(week_of_month = monthweeks(date)) %>% mutate(day_of_month = lubridate::day(date)) %>% 
+    mutate(day_of_year = lubridate::yday(date)) %>% mutate(weekday = lubridate::wday(date)) %>% 
+    mutate(weekday_name = lubridate::wday(date, label = TRUE)) %>% 
+    mutate(weekend = ifelse(weekday %in% c(1, 7), 1, 0)) %>% 
+    mutate(ymd_format = lubridate::ymd(paste(year, month_of_year, day_of_month, sep = "-")))
+  if (as_factors) {
+    dates_features[colnames(dates_features)[-1]] <- lapply(dates_features[colnames(dates_features)[-1]], 
+      factor)
+  }
+  return(dates_features)
+}
+
+tradetime_features <- date_features(bh$tradeTime, as_factors = FALSE) %>% select(-date, -ymd_format, -weekday, -month_of_year, -day_of_year)
+```
+
+```{r warning=FALSE}
+t(head(tradetime_features))
+```
+
+<br>
+
+#### **Cleaning**
+
+```{r warning=FALSE}
+bh_processed <- bh %>%
+  rename(floor_character = `floor`) %>%
+  cbind(tradetime_features) %>%
+  mutate(floor_number = str_extract(floor_character, "(\\d+)(?: \\d+)*$")) %>%
+  filter(as.numeric(year) > 2011) %>%
+  map_at(c("livingRoom", "drawingRoom", "kitchen", "bathRoom", "buildingType" , "buildingStructure", "renovationCondition", "fiveYearsProperty", "elevator", "subway", "district", "quarter_of_year", "weekend", "weekday_name", "month_name", "year"), as.factor) %>%
+  map_at(c("Lng", "Lat", "DOM", "followers", "price", "square", "constructionTime", "ladderRatio", "floor_number", "constructionTime", "week_of_year", "day_of_month"), as.numeric) %>%
+  as_tibble() %>%
+  select(-floor_character, -tradeTime, -totalPrice, -communityAverage, -DOM, -followers, -split_flag) %>%
+  filter(buildingType %in% c(1, 2, 3, 4)) %>%
+  filter(ladderRatio < quantile(bh$ladderRatio, 0.99)) %>%
+  filter(price > 10000) %>%
+  filter(constructionTime > 1800) %>%
+  mutate(naConstruction = as.factor(ifelse(is.na(constructionTime), "na_ct", "ok_ct"))) %>%
+  mutate(constructionTime = replace_na(constructionTime, 0)) %>%
+  na.omit()
+
+stopifnot(map(bh_processed, class)[1] %in% c("factor", "ordered", "numeric"))
+stopifnot(sum(is.na(bh_processed)) == 0)
+```
+
+<br>
+
+#### **Dummies**
+
+```{r}
+# faster then caret defaults
+bh_factors <- select_if(bh_processed, is.factor)
+dummies <- select_if(fastDummies::dummy_cols(bh_factors), is.integer)
+bh_processed <- select_if(bh_processed, is.numeric) %>% cbind(dummies)
+bh_processed <- cbind(bh_processed[,1:10], map_df(bh_processed[11:dim(bh_processed)[2]], as.factor))
+```
+
+<br>
+
+#### **Training split**
+
+```{r}
+set.seed(23)
+tv_split <- createDataPartition(bh_processed$price, p = 0.8, list=FALSE)
+bh_train <- bh_processed[tv_split,]
+bh_val <- bh_processed[-tv_split,]
+
+x_train <- bh_train %>% select(-price)
+y_train <- bh_train %>% select(price)
+x_val <- bh_val %>% select(-price)
+y_val <- bh_val %>% select(price)
+```
+
+<br>
+
+#### **Final preprocessing (imputation, colinearity, scaling, nzv)**
+
+```{r warning=FALSE}
+
+# caret preprocessing would automatically scale dummies if we keep them as numeric and skip other operations if we keep them as factors -> two preproc steps
+
+tic("caret preproc")
+preproc_numeric <- preProcess(x_train, method = c("center", "scale", "YeoJohnson", "knnImpute"))
+x_train <- predict(preproc_numeric, x_train)
+x_train <- map_df(x_train, as.numeric)
+preproc_all <- preProcess(x_train, method = c("nzv", "corr", "conditionalX"))
+x_train <- predict(preproc_all, x_train)
+
+x_val <- predict(preproc_numeric, x_val)
+x_val <- map_df(x_val, as.numeric)
+x_val <- predict(preproc_all, x_val)
+
+write_rds(x_train, "data/x_train.rds")
+write_rds(x_val, "data/x_val.rds")
+
+toc()
+
+```
+
+```{r}
+print(preproc_all)
+print(preproc_numeric)
+```
+
+<br>
+
+**This is how our final training set looks like:**
+
+```{r warning=FALSE}
+knitr::kable(t(head(x_train)))
+```
+
+```{r}
+dim(x_train)
+```
+
+------
+
+### MODELING
+
+```{r}
+gc()
+```
+
+#### Train
+
+I train 4 different models including basic grid search of hyperparameters and repeated 5-fold crossvalidation. I've tried to select varying approaches and allowing for somehow interpretable results:
+
+- Lasso - linnear regression with L1 regularization (`lasso`)
+- Multivariate Adaptive Regression Splines (MARS - [link](http://uc-r.github.io/mars)). (Also called `earth`)
+- Bayesian regularized neural network, 2layers (`brnn`)
+- Random forest (`random_forest`)
+
+
+```{r warning=FALSE}
+tic("Training models")
+set.seed(23)
+training_data <- cbind(y_train, x_train)
+methods <- c("lasso", "earth", "brnn", "ranger")
+fitControl <- trainControl(method = "repeatedcv",
+                           number = 5,
+                           repeats = 2,
+                           search = "grid",
+                           allowParallel = TRUE,
+                           verboseIter = TRUE)
+
+#cl <- makePSOCKcluster(2)
+#registerDoParallel(cl)
+models_metrics <- list()
+for (m in methods) {
+
+  model <- caret::train(price ~ .,
+                        data = training_data,
+                        method = m,
+                        trControl = fitControl,
+                        importance = 'impurity',
+                        na.action = na.pass)
+
+  saveRDS(model, paste0("models/", m, ".rds"))
+  models_metrics[[m]] <- model$resample
+  gc()
+}
+
+#stopCluster(cl)
+toc()
+```
+
+<br>
+
+#### **Compare models performance **
+
+```{r}
+models <- list.files("models/")
+models_metrics <- list()
+for (model in models) {
+  fit <- read_rds(paste0("models/", model))
+  models_metrics[[fit$method]] <- fit$resample
+}
+```
+
+```{r}
+df_metrics <- do.call(what = rbind, args = models_metrics) %>%
+  rownames_to_column() %>%
+  separate(rowname, into = c("model_name", "iteration")) %>%
+  filter(model_name %in% c("lasso", "earth", "brnn", "ranger")) %>%
+  mutate(model_name = ifelse(model_name == "ranger", "random_forest", model_name))
+```
+
+```{r fig.height=5, fig.width=10}
+p1 <- ggplot(df_metrics, aes(forcats::fct_reorder(model_name, MAE, .desc = TRUE), MAE)) +
+  geom_boxplot() + 
+  geom_point() +
+  labs(title = "Resampled metrics", subtitle = "Mean absolute error", x = " ", y = "MAE") + 
+  theme(legend.position = "none", plot.margin = unit(c(0,0,0,0),"cm"))
+
+p2 <- ggplot(df_metrics, aes(forcats::fct_reorder(model_name, Rsquared, .desc = TRUE), Rsquared)) +
+  geom_boxplot() + 
+  geom_point() +
+  labs(subtitle = "Rsquared", x = " ", y = "Rsquared") + 
+  theme(legend.position = "none", plot.margin = unit(c(0,0,0,1),"cm"))
+
+p1 + p2 + patchwork::plot_layout(ncol = 2)
+```
+
+Random forest outperforms other selected methods. Let't validate its performance in more detail and look into most important features it picked up.
+
+------
+
+### VALIDATION
+
+```{r}
+rf <- read_rds("models/ranger.rds")
+rf$finalModel
+```
+
+- The best performing model (~0.95 R-squared) is a random forest with 500 trees, 22 randomly selected predictors, minimal node size of 5 and variance based spliting rule. Altough doing extensive grid search over 3 hyperparameters took much more time than other models the result is significantly better.
+
+Let's visualize performance of the best model:
+
+```{r}
+model <- rf
+y_hat <- predict(model, newdata = x_val)
+
+preds_df <- as.data.frame(y_hat) %>%
+  mutate(y = y_val$price) %>%
+  mutate(residuals = y_hat - y,
+         sd_residuals = scale(residuals),
+         abs_error = abs(residuals))
+```
+
+```{r fig.height=10, fig.width=10, warning=FALSE}
+p1 <- ggplot() + 
+  geom_density(aes(y), data = preds_df, colour = "darkgreen", fill = "darkgreen", alpha = 0.5) + 
+  geom_density(aes(y_hat), data = preds_df, colour = "darkblue", fill = "darkblue", alpha = 0.5) + 
+  labs(x = "price", title="Best model - validation", subtitle="Actuals & predictions distributions") +
+  scale_x_comma()
+
+p2 <- ggplot(preds_df, aes(y, y_hat)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() + 
+  scale_x_comma() +
+  scale_y_comma() +
+  labs(x = "Price", y="Predicted price", subtitle="Actuals vs predictions")
+
+p3 <- ggplot(preds_df, aes(abs_error)) +
+  geom_histogram(bins = 100) +
+  scale_x_comma(limits = c(0, 40000)) +
+  labs(x = "Absolute error", subtitle = "Absolute error distribution")
+
+p4 <- ggplot(preds_df, aes(y_hat, sd_residuals)) + 
+  geom_point(alpha = 0.5) + 
+  geom_hline(yintercept = 0, colour="red", linetype = "dashed") + 
+  labs(x = "Predicted price", y = "Standarized residuals", subtitle = "Residuals")
+
+p1 + p2 + p3 + p4 + plot_layout(nrow = 2, ncol = 2)
+```
+
+
+```{r}
+cat(paste0("Median price in the validation set: ", median(y_val$price),
+          "\nMean absolute error: ", round(mean(model$resample$MAE), 2)))
+```
+<br>
+
+
+#### **Features Importance:**
+
+
+```{r fig.height=7, fig.width=7}
+features_importance <- varImp(model)$importance %>%
+  rownames_to_column() %>%
+  select(feature = rowname, gini_importance = Overall) %>%
+  arrange(desc(gini_importance)) %>%
+  head(15)
+
+ggplot(features_importance, aes(forcats::fct_reorder(feature, gini_importance), gini_importance)) + 
+  geom_point(size = 2) + 
+  coord_flip() +
+  labs(x = " ", y = "Gini importance (Mean Decrease in Impurity)", subtitle = "Top features used by random forest for splits")
+```
+
+- Predictions were generated mainly by looking at the location (Lat/Lng or district) and time the apartment was posted for sale. Such characteristics as size of the apartment, construction time or renovation condition didn't make it into top 10. 
+
+<br>
+
+**Individual examples**
+
+At the end let's look at few individual examples of apartments and try to explain which variables were the most important for the model to make price estimation:
+
+```{r warning=FALSE}
+library(lime)
+set.seed(23)
+selected_apartments <- sample_n(x_val, 6)
+explainer <- lime(selected_apartments, model = model)
+explanation <- explain(selected_apartments, explainer, n_features = 7)
+```
+
+```{r fig.height=10, fig.width=10, warning=FALSE}
+plot_features(explanation)
+```
+
+------
+
+<center>THE END</center>
+

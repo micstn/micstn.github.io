@@ -1,0 +1,98 @@
+---
+title: "Tatra Mountains in 3D using [rayshader](https://github.com/tylermorganwall/rayshader) & [rglwidget()](https://cran.r-project.org/web/packages/rgl/vignettes/WebGL.html)"
+author: "mic.stan@outlook.com"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(rayshader)
+library(leaflet)
+library(rgl)
+library(rgeos)
+library(here)
+```
+
+### Load Data - [Lesser Voivodeship](https://en.wikipedia.org/wiki/Lesser_Poland_Voivodeship)
+
+Elevation data with 100m resolution shared by [http://www.codgik.gov.pl](http://www.codgik.gov.pl)
+
+```{r}
+ppath <- here()
+download_path = "/data/malopolskie_grid100.zip"
+if(!file.exists(download_path)){
+   url <- "ftp://91.223.135.109/nmt/malopolskie_grid100.zip"
+   download.file(url, destfile = paste0(ppath, download_path), quiet = TRUE)
+   unzip(paste0(ppath, download_path), exdir = "data/") 
+}
+mal <- read.table("data/malopolskie.txt")
+malm <- as.matrix(spread(mal, V2, V3, fill = 50) %>% select(-V1))
+```
+
+
+```{r}
+# get municipality data
+pl <- raster::getData("GADM", country = "Poland", level = 1)
+# colours
+vcolours <- rep("#222222", length(pl@polygons))
+midx <- which("Małopolskie" == pl@data[["NAME_1"]])[[1]]
+vcolours[midx] <- "darkgreen"
+
+leaflet(pl) %>%
+    addTiles() %>%
+    addPolygons(color = vcolours, weight = 1, smoothFactor = 0.5,
+                opacity = 1.0, fillOpacity = 0.7,
+                highlightOptions = highlightOptions(color = "white",
+                                                    weight = 2,
+                                                    bringToFront = TRUE))
+```
+
+The whole voivodeship is slightly too big for an interactive use in the notebook:
+
+<center><img width="100%" src="media/malopolskie.png"></center>
+
+But we can select few regions and display them with rglwidget!
+
+### Selected region 1
+
+```{r message=FALSE, warning=FALSE}
+ter <- malm[1000:1500, 400:900]
+ambmat <- ambient_shade(ter)
+ter3d <- ter %>%
+    sphere_shade(texture = "imhof1") %>%
+    add_water(detect_water(ter, cutoff = 0.7), color="imhof1") %>%
+    add_shadow(ray_shade(ter, zscale=3, maxsearch = 300), 0.5) %>%
+    add_shadow(ambmat, 0.5)
+```
+
+```{r fig.align="center"}
+
+ter3d %>% plot_3d(ter, zscale=10, fov=0, theta=135, zoom=0.75, phi=45, windowsize = c(1000,800), baseshape = "circle")
+
+rgl::rglwidget()
+```
+[click and drag!]
+
+### Selected region 2
+
+```{r message=FALSE, warning=FALSE}
+ter <- malm[500:900, 500:900]
+ambmat <- ambient_shade(ter)
+ter3d <- ter %>%
+    sphere_shade(texture = "desert") %>%
+    add_water(detect_water(ter, cutoff = 0.7), color="desert") %>%
+    add_shadow(ray_shade(ter)) %>%
+    add_shadow(ambmat, 0.5)
+
+```
+
+
+```{r fig.align="center"}
+ter3d %>% plot_3d(ter, zscale=10, fov=0, theta=135, zoom=1, phi=45, windowsize = c(1100, 1100), water=TRUE, waterdepth = 0, wateralpha = 0.5, watercolor = "lightblue")
+
+fn <- spin3d(axis = c(0, 1, 0))
+rgl::rglwidget(height = 800, width = 800) %>%
+    playwidget(par3dinterpControl(fn, 0, 10, steps = 50), step = 0.01)
+```
+
+
