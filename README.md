@@ -1,4 +1,1 @@
-### share/
-
-- [Yellowbricks for fastai](https://github.com/mistn/mistn.github.io/blob/master/nbs/fastai_yellowbrics.ipynb)
-- . 
+[https://micstn.github.io/](https://micstn.github.io/)
