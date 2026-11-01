@@ -59,16 +59,17 @@ a {
 .brand {
   display: inline-flex;
   align-items: center;
+  transform: translateY(1px);
 }
 
 .brand-mark {
-  width: 180px;
-  height: 58px;
+  width: 310px;
+  height: 100px;
   object-fit: contain;
   object-position: center;
   display: block;
-  padding-top: 6px;
-  padding-bottom: 6px;
+  padding-top: 10px;
+  padding-bottom: 10px;
   box-sizing: content-box;
 }
 
@@ -79,6 +80,7 @@ a {
   font-size: 0.74rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
+  padding-top: 2px;
 }
 
 .nav-links a {
