@@ -62,13 +62,13 @@ a {
 }
 
 .brand-mark {
-  width: 135px;
-  height: 81px;
-  object-fit: cover;
-  object-position: center 10%;
+  width: 180px;
+  height: 58px;
+  object-fit: contain;
+  object-position: center;
   display: block;
-  padding-top: 8.1px;
-  padding-bottom: 8.1px;
+  padding-top: 6px;
+  padding-bottom: 6px;
   box-sizing: content-box;
 }
 
