@@ -1,3 +1,6 @@
 .*
 !/.gitignore
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
 node_modules
