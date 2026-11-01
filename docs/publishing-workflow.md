@@ -56,4 +56,3 @@ The static site is generated into the `dist/` directory and is ready to deploy t
 
 If GitHub Pages is configured to deploy from the repository root or from the generated `dist/` output, push the built content or configure the deployment source accordingly.
 
-.
