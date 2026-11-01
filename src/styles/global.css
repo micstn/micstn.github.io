@@ -60,13 +60,14 @@ a {
   display: inline-flex;
   align-items: center;
   transform: translateY(1px);
+  margin-left: -0.35rem;
 }
 
 .brand-mark {
-  width: 310px;
-  height: 100px;
+  width: 341px;
+  height: 110px;
   object-fit: contain;
-  object-position: center;
+  object-position: left center;
   display: block;
   padding-top: 10px;
   padding-bottom: 10px;
@@ -215,9 +216,13 @@ a {
     width: 120px;
   }
 
+  .brand {
+    margin-left: -0.15rem;
+  }
+
   .brand-mark {
-    width: 120px;
-    height: 72px;
-    object-position: center 10%;
+    width: 240px;
+    height: 144px;
+    object-position: left center;
   }
 }
