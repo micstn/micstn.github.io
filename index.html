@@ -1,30 +1,57 @@
-share/
-<br>
-<ul>
-    <li><a href="static/hello/hello.html" target="_blank">Quarto - hello world</a></li>
-    <li><a href="static/example/quarto_example.html" target="_blank">Quarto - example report</a></li>
-    <li><a href="static/coupling_dots/coupling_animation.html" target="_blank">Random dots - coupling through adjacency</a></li>
-    <br>
-    <br>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prismary</title>
+    <meta
+      name="description"
+      content="Prismary is a directory of essays and notes."
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="container nav">
+        <a class="brand" href="/" aria-label="Prismary home">
+          <img class="brand-mark" src="media/prismary.jpg" alt="Prismary mark" />
+        </a>
+        <nav class="nav-links" aria-label="Main navigation">
+          <a href="/">Home</a>
+          <a href="/essays/">Essays</a>
+          <a href="#about">About</a>
+        </nav>
+      </div>
+    </header>
 
-    <hr>
-    <br>
-    <p>Very old</p>
-    <li><a href="https://github.com/micstn/micstn.github.io/blob/master/nbs/uk_covid_xls_bug.ipynb" target="_blank">UK COVID missed cases (xls limit reached)</a></li>
-    <li><a href="https://github.com/micstn/micstn.github.io/blob/master/nbs/fastai_yellowbrics.ipynb" target="_blank">Yellowbrick visualizations for Fastai learner</a></li>
-    <li><a href="https://github.com/micstn/micstn.github.io/blob/master/nbs/lsst_cnn.ipynb" target="_blank">PLAsTiCC supernova classification - CNN approach</a></li>
-    <li><a href="static/nike_notebook.nb.html" target="_blank">Causal impact tutorial - Nike campaign case study</a></li>
-    <li><a href="https://github.com/micstn/micstn.github.io/blob/master/nbs/lotka_volterra_variations.ipynb" target="_blank">Lotka–Volterra dynamic system variations</a></li>
-    <li><a href="https://nbviewer.jupyter.org/github/micstn/micstn.github.io/blob/master/nbs/learn_prisoners_strategies.ipynb" target="_blank">Learning strategies in prisoner's dilemma simulations</a></li>
-    <li><a href="https://github.com/micstn/micstn.github.io/blob/master/nbs/gym_modeling.ipynb" target="_blank">Gym subscriptions predictions</a></li>
-    <li><a href="https://github.com/micstn/micstn.github.io/blob/master/nbs/gensim_word2vec_training.ipynb" target="_blank">Word2vec with Gensim - training + embeddings exploration</a></li>
-    <li><a href="https://micstan.gitlab.io/share_zone/tatry_3d.nb.html" target="_blank">Tatra mountains with rayshader interactive vis (big!)</a></li>
-    <li><a href="static/beijing_housing.nb.html" target="_blank">Beijing housing prices modeling</a></li>
-    <li><a href="https://github.com/micstn/micstn.github.io/blob/master/nbs/rooms_class.ipynb" target="_blank">Rooms images classification</a></li>
-    <li><a href="https://github.com/micstn/micstn.github.io/blob/master/nbs/uci_heart.ipynb" target="_blank">UCI heart</a></li>
-    <li><a href="https://mistn.shinyapps.io/comp1/" target="_blank">Shiny dashboard show and tell - consumer complaints</a></li>
+    <main class="container directory-wrap">
+      <ul class="index-list">
+        <li>
+          <div class="thumb" aria-hidden="true"></div>
+          <a href="/essays/essay-one.html">Essay One</a>
+          <span>
+            Test page for a short field note and reference essay. This entry is intended to show how
+            a concise archive item reads in a minimal publication directory.
+          </span>
+        </li>
+        <li>
+          <div class="thumb" aria-hidden="true"></div>
+          <a href="/essays/essay-two.html">Essay Two</a>
+          <span>
+            Second sample essay for testing the rendered markdown output. It demonstrates how longer,
+            descriptive summaries can sit alongside a clean title and a consistent visual rhythm.
+          </span>
+        </li>
+      </ul>
 
-
-
-</ul>
+      <section id="about" class="about-block">
+        <p>
+          Prismary is a minimal home for essays, notes, and visual writing. The archive is designed
+          to stay quiet and direct: a list of works, a clear entry point into each piece, and enough
+          structure to grow without losing the architectural, drafting-inspired character of the site.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
 

@@ -1,0 +1,36 @@
+---
+import { getCollection } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+
+const essays = (await getCollection('essays')).sort((a, b) =>
+  new Date(b.data.pubDate ?? 0).valueOf() - new Date(a.data.pubDate ?? 0).valueOf(),
+);
+---
+
+<BaseLayout title="Essays | Prismary" description="Essay index for Prismary.">
+  <main class="container directory-wrap">
+    <ul class="index-list compact-index">
+      {essays.map((essay) => (
+        <li>
+          <div class="thumb" aria-hidden="true"></div>
+          <a href={`/essays/${essay.slug}/`}>{essay.data.title}</a>
+          <span>{essay.data.description}</span>
+        </li>
+      ))}
+      <li>
+        <div class="thumb" aria-hidden="true">
+          <img src="/media/aif_gym_thumb.png" alt="Active Inference Gym thumbnail" />
+        </div>
+        <a href="https://micstn.github.io/active_inference_gym/" target="_blank" rel="noreferrer noopener">Active Inference Gym</a>
+        <span>Interactive simulations and experiments exploring active inference, embodied learning, and model-based behavior.</span>
+      </li>
+      <li>
+        <div class="thumb" aria-hidden="true">
+          <img src="/media/mountain_car_thumb.png" alt="Continuous MountainCar thumbnail" />
+        </div>
+        <a href="https://micstn.github.io/actinf_gssm_catal2/" target="_blank" rel="noreferrer noopener">Active Inference Control Experiment: Continuous MountainCar</a>
+        <span>Research-led visual and computational notes on structured inference systems, model design, and exploratory analysis.</span>
+      </li>
+    </ul>
+  </main>
+</BaseLayout>
