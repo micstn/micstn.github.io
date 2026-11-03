@@ -60,18 +60,12 @@ a {
   display: inline-flex;
   align-items: center;
   transform: translateY(1px);
-  margin-left: -0.35rem;
-}
-
-.brand-mark {
-  width: 341px;
-  height: 110px;
-  object-fit: contain;
-  object-position: left center;
-  display: block;
-  padding-top: 10px;
-  padding-bottom: 10px;
-  box-sizing: content-box;
+  margin-left: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.7rem, 2vw, 2.2rem);
+  letter-spacing: -0.06em;
+  text-decoration: none;
+  font-weight: 600;
 }
 
 .nav-links {
@@ -133,7 +127,7 @@ a {
 }
 
 .index-list a {
-  font-size: clamp(1rem, 1.7vw, 1.45rem);
+  font-size: clamp(0.9rem, 1.3vw, 1.18rem);
   letter-spacing: -0.04em;
   line-height: 1.2;
   text-transform: uppercase;
