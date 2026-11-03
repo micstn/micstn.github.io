@@ -14,11 +14,15 @@ const {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    <link rel="icon" type="image/png" href="/prismaryred_circle.png" />
   </head>
   <body>
     <header class="topbar">
       <div class="container nav">
-        <a class="brand" href="/" aria-label="Prismary home">Prismary</a>
+        <a class="brand" href="/" aria-label="Prismary home">
+          <img class="brand-icon" src="/prismaryred_circle.png" alt="" aria-hidden="true" />
+          <span>Prismary</span>
+        </a>
         <nav class="nav-links" aria-label="Main navigation">
           <a href="/">Home</a>
           <a href="/essays/">Essays</a>
