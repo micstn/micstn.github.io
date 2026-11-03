@@ -12,9 +12,11 @@ const essays = (await getCollection('essays')).sort((a, b) =>
     <ul class="index-list">
       {essays.map((essay) => (
         <li>
-          <div class="thumb" aria-hidden="true">
-            {essay.data.thumbnail ? <img src={essay.data.thumbnail} alt={essay.data.title} /> : null}
-          </div>
+          <a href={`/essays/${essay.slug}/`} class="thumb-link" aria-label={`Open ${essay.data.title}`}>
+            <div class="thumb" aria-hidden="true">
+              {essay.data.thumbnail ? <img src={essay.data.thumbnail} alt={essay.data.title} /> : null}
+            </div>
+          </a>
           <a href={`/essays/${essay.slug}/`}>{essay.data.title}</a>
           <span>{essay.data.description}</span>
         </li>

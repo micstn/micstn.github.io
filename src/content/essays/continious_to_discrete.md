@@ -5,8 +5,6 @@ pubDate: 2026-11-03
 thumbnail: "/media/yayoki.jpg"
 ---
 
-# Continuous to Discrete
-
 This is the first test essay for Prismary. It exists as a markdown file in the essays directory and is rendered to a simple HTML page for testing the directory structure.
 
 <p>
